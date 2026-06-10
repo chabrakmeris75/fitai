@@ -1,0 +1,1 @@
+NODE_ENV=development  add .envgit commit -m "fix netlify build"git push
