@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import {
-  AreaChart, Area, BarChart, Bar, LineChart, Line,
+  AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
 import { Card, Badge, MetricTile, ProgressBar, ScoreRing, SectionTitle, Tabs } from '../components/UI.jsx'
 import { SLEEP_DATA, WEIGHT_DATA, CALORIES_DATA, TODAY_NUTRITION, WORKOUTS, MUSCLE_VOLUME } from '../data/mockData.js'
+import { useHealthData, formatSleep, calcFormeScore } from '../hooks/useHealthData.js'
 
 const TT = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
@@ -33,7 +34,13 @@ function MacroRow({ label, g, target, color }) {
 
 export default function Dashboard({ onNavigate }) {
   const [period, setPeriod] = useState('semaine')
-  const score = 81
+  const { data: healthData, loading, lastSync, error, refresh } = useHealthData()
+
+  const score = calcFormeScore(healthData)
+  const sleepStr = formatSleep(healthData) || '—'
+  const weight = healthData?.weight ? `${healthData.weight.toFixed(1)}` : '80.9'
+  const steps = healthData?.steps ? healthData.steps.toLocaleString('fr-FR') : '—'
+  const restingHr = healthData?.resting_hr || '—'
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
 
   return (
@@ -47,13 +54,36 @@ export default function Dashboard({ onNavigate }) {
             Tableau de bord
           </h1>
         </div>
-        <Tabs
-          tabs={[{ id: 'semaine', label: '7j' }, { id: 'mois', label: '30j' }, { id: '3mois', label: '3m' }]}
-          active={period}
-          onChange={setPeriod}
-          style={{ width: 130 }}
-        />
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+          <Tabs
+            tabs={[{ id: 'semaine', label: '7j' }, { id: 'mois', label: '30j' }, { id: '3mois', label: '3m' }]}
+            active={period}
+            onChange={setPeriod}
+            style={{ width: 130 }}
+          />
+          <button onClick={refresh} disabled={loading} style={{
+            fontSize: 11, color: loading ? 'var(--text3)' : 'var(--accent2)',
+            background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font)',
+            display: 'flex', alignItems: 'center', gap: 4,
+          }}>
+            {loading ? '⟳ Sync...' : lastSync ? `⟳ Sync ${lastSync}` : '⟳ Sync'}
+          </button>
+        </div>
       </div>
+
+      {/* Error banner */}
+      {error && (
+        <div style={{ background: 'rgba(251,191,36,0.08)', border: '0.5px solid rgba(251,191,36,0.2)', borderRadius: 10, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: 'var(--amber)' }}>
+          ⚠ {error}
+        </div>
+      )}
+
+      {/* Sync banner if no real data */}
+      {!healthData && !loading && (
+        <div style={{ background: 'rgba(124,111,247,0.08)', border: '0.5px solid rgba(124,111,247,0.2)', borderRadius: 10, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: 'var(--accent2)' }}>
+          ◎ Lance un Manual Export dans Health Auto Export pour voir tes vraies données
+        </div>
+      )}
 
       {/* Score + KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr 1fr', gap: 10, marginBottom: 12, animation: 'fadeUp .45s ease' }}>
@@ -66,20 +96,70 @@ export default function Dashboard({ onNavigate }) {
           </div>
           <span style={{ fontSize: 10, color: 'var(--green)', fontFamily: 'var(--font-mono)' }}>FORME</span>
         </Card>
-        <MetricTile label="Poids" value="80.9" unit="kg" delta="−2.3 kg/mois" deltaUp />
-        <MetricTile label="Muscle" value="42.5" unit="kg" delta="+1.4 kg/mois" deltaUp />
+        <MetricTile
+          label="Poids"
+          value={weight}
+          unit="kg"
+          delta={healthData?.weight ? '✓ Renpho' : 'Simulé'}
+          deltaUp={!!healthData?.weight}
+        />
+        <MetricTile
+          label="Sommeil"
+          value={sleepStr}
+          delta={healthData?.sleep?.inBed ? '✓ Zepp' : 'Simulé'}
+          deltaUp={!!healthData?.sleep?.inBed}
+        />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 18, animation: 'fadeUp .5s ease' }}>
-        <MetricTile label="Calories" value="2 200" unit="kcal" delta="−200 vs cible" />
-        <MetricTile label="Sommeil" value="7.1" unit="h" delta="Récup. ok" deltaUp />
-        <MetricTile label="% Graisse" value="16.9" unit="%" delta="−1.5% / mois" deltaUp />
+        <MetricTile
+          label="FC repos"
+          value={restingHr}
+          unit={restingHr !== '—' ? 'bpm' : ''}
+          delta={healthData?.resting_hr ? '✓ Zepp' : 'Simulé'}
+          deltaUp={!!healthData?.resting_hr}
+        />
+        <MetricTile
+          label="Pas"
+          value={steps}
+          delta={healthData?.steps ? '✓ Zepp' : 'Simulé'}
+          deltaUp={!!healthData?.steps}
+        />
+        <MetricTile
+          label="Calories"
+          value={healthData?.calories || '2 200'}
+          unit="kcal"
+          delta={healthData?.calories ? '✓ Crono' : 'Simulé'}
+          deltaUp={!!healthData?.calories}
+        />
       </div>
+
+      {/* Sommeil réel */}
+      {healthData?.sleep && (
+        <div style={{ marginBottom: 14, animation: 'fadeUp .52s ease' }}>
+          <Card glow>
+            <SectionTitle>Sommeil — données réelles Zepp</SectionTitle>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
+              {[
+                { label: 'Au lit', value: formatSleep(healthData) },
+                { label: 'Profond', value: healthData.sleep.deep ? `${(healthData.sleep.deep * 60).toFixed(0)}min` : '—' },
+                { label: 'REM', value: healthData.sleep.rem ? `${(healthData.sleep.rem * 60).toFixed(0)}min` : '—' },
+                { label: 'Léger', value: healthData.sleep.core ? `${(healthData.sleep.core * 60).toFixed(0)}min` : '—' },
+              ].map((s, i) => (
+                <div key={i} style={{ background: 'var(--bg3)', borderRadius: 10, padding: '8px', textAlign: 'center', border: '0.5px solid var(--border)' }}>
+                  <p style={{ margin: '0 0 3px', fontSize: 9, color: 'var(--text3)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>{s.label}</p>
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 600, fontFamily: 'var(--font-display)' }}>{s.value}</p>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Calories chart */}
       <div style={{ marginBottom: 14, animation: 'fadeUp .55s ease' }}>
         <Card>
-          <SectionTitle>Balance calorique</SectionTitle>
+          <SectionTitle>Balance calorique — semaine</SectionTitle>
           <div style={{ display: 'flex', gap: 14, fontSize: 11, color: 'var(--text3)', marginBottom: 10 }}>
             <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: 'var(--accent)', marginRight: 4, verticalAlign: -1 }} />Ingéré</span>
             <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: 'var(--green)', marginRight: 4, verticalAlign: -1 }} />Brûlé</span>
@@ -97,7 +177,7 @@ export default function Dashboard({ onNavigate }) {
         </Card>
       </div>
 
-      {/* Composition + Sommeil */}
+      {/* Composition */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14, animation: 'fadeUp .6s ease' }}>
         <Card>
           <SectionTitle>Composition</SectionTitle>
@@ -122,13 +202,12 @@ export default function Dashboard({ onNavigate }) {
         </Card>
 
         <Card>
-          <SectionTitle>Sommeil</SectionTitle>
+          <SectionTitle>Sommeil 7j</SectionTitle>
           <ResponsiveContainer width="100%" height={100}>
             <BarChart data={SLEEP_DATA}>
               <XAxis dataKey="day" tick={{ fill: 'rgba(240,240,245,.35)', fontSize: 11 }} axisLine={false} tickLine={false} />
               <Tooltip content={<TT />} />
               <Bar dataKey="hours" name="Heures" radius={[3, 3, 0, 0]} barSize={20}
-                fill="none"
                 shape={(props) => {
                   const { x, y, width, height, value } = props
                   const color = value >= 7.5 ? '#34d399' : value >= 6.5 ? '#fbbf24' : '#f87171'
@@ -144,10 +223,9 @@ export default function Dashboard({ onNavigate }) {
       <div style={{ marginBottom: 14, animation: 'fadeUp .65s ease' }}>
         <Card>
           <SectionTitle>Macros du jour</SectionTitle>
-          <MacroRow label="Protéines" g={TODAY_NUTRITION.protein.g} target={TODAY_NUTRITION.protein.target} color="var(--accent2)" />
+          <MacroRow label="Protéines" g={healthData?.protein || TODAY_NUTRITION.protein.g} target={TODAY_NUTRITION.protein.target} color="var(--accent2)" />
           <MacroRow label="Glucides" g={TODAY_NUTRITION.carbs.g} target={TODAY_NUTRITION.carbs.target} color="var(--blue)" />
           <MacroRow label="Lipides" g={TODAY_NUTRITION.fat.g} target={TODAY_NUTRITION.fat.target} color="var(--amber)" />
-          <MacroRow label="Hydratation" g={TODAY_NUTRITION.water.l} target={TODAY_NUTRITION.water.target} color="var(--green)" />
         </Card>
       </div>
 
@@ -181,9 +259,9 @@ export default function Dashboard({ onNavigate }) {
             <Badge type="info">Claude</Badge>
           </div>
           {[
-            { icon: '⚡', type: 'warn', text: 'Volume jambes 40% sous objectif — planifie une séance cette semaine.' },
-            { icon: '✦', type: 'ok', text: 'PR développé couché +5 kg ce mois — progression solide.' },
-            { icon: '◎', type: 'info', text: 'Recomposition en cours : −2.3 kg graisse, +1.4 kg muscle sur 6 sem.' },
+            { icon: '⚡', text: 'Volume jambes 40% sous objectif — planifie une séance cette semaine.' },
+            { icon: '✦', text: 'PR développé couché +5 kg ce mois — progression solide.' },
+            { icon: '◎', text: healthData?.sleep?.inBed ? `Sommeil cette nuit : ${formatSleep(healthData)} — ${healthData.sleep.inBed >= 7 ? 'récupération optimale' : 'un peu court, repose-toi ce soir'}.` : 'Recomposition en cours : −2.3 kg graisse, +1.4 kg muscle sur 6 sem.' },
           ].map((a, i) => (
             <div key={i} style={{ display: 'flex', gap: 10, padding: '9px 0', borderBottom: i < 2 ? '0.5px solid var(--border)' : 'none' }}>
               <span style={{ fontSize: 16, flexShrink: 0 }}>{a.icon}</span>
