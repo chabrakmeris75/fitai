@@ -11,8 +11,8 @@ exports.handler = async function(event, context) {
     return { statusCode: 200, headers, body: '' }
   }
 
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method Not Allowed' }) }
+  // Accept both GET and POST
+
   }
 
   try {
